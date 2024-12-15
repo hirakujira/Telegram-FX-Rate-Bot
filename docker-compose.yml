@@ -1,0 +1,16 @@
+services:
+  python:
+    container_name: fx-rate-bot
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - TZ=Asia/Taipei
+    restart: on-failure:3
+    volumes:
+      - ./config.json:/app/config.json
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
