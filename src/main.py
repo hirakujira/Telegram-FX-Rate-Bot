@@ -69,7 +69,7 @@ def handle_currency_conversion(message):
         if len(config.channels) and message.chat.id not in config.channels:
             bot.reply_to(message, "您沒有權限使用此指令。")
             return
-        result = parse_currency_input(message.text.replace('/cur ', '').replace('=', ''))
+        result = parse_currency_input(message.text.replace('/cur ', '').replace('=', '').replace(',', ''))
         if result:
             amount, from_currency, to_currency = result
 
@@ -87,11 +87,22 @@ def handle_currency_conversion(message):
             
             converted_amount = data['result']
             timestamp = datetime.fromtimestamp(data['timestamp'])
+
+            if amount.is_integer():
+                amount_str = f"{int(amount):,}"
+            else:
+                amount_str = f"{amount:,.2f}"
+
             if converted_amount < 0.01:
-                response = f"`💰{amount} {from_currency} = < 0.01 {to_currency}`"
+                response = f"`💰{amount_str} {from_currency} = < 0.01 {to_currency}`"
                 response += f"\n\n更新時間: {timestamp.strftime('%Y-%m-%d %H:%M')}"
             else:
-                response = f"`💰{amount} {from_currency} = {converted_amount:,.2f} {to_currency}`"
+                if converted_amount.is_integer():
+                    converted_amount_str = f"{int(converted_amount):,}"
+                else:
+                    converted_amount_str = f"{converted_amount:,.2f}"
+                
+                response = f"`💰{amount_str} {from_currency} = {converted_amount_str} {to_currency}`"
                 response += f"\n\n更新時間: {timestamp.strftime('%Y-%m-%d %H:%M')}"
             
             bot.reply_to(message, response, parse_mode="Markdown")
