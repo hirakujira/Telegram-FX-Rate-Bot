@@ -44,7 +44,7 @@ config = load_config()
 currency_list = get_currency_list()
 
 def parse_currency_input(text):
-    pattern = r'^(\d+(\.\d+)?\s*)?([A-Z]{3,4})(\s+[A-Z]{3,4})?$'
+    pattern = r'^(\d+(\.\d+)?\s*)?(?:([A-Z]{3,4}|MATIC))(\s+(?:[A-Z]{3,4}|MATIC))?$'
     match = re.match(pattern, text.strip().upper())
     
     if match:
