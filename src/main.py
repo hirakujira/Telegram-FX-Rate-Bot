@@ -1,115 +1,83 @@
+import logging
+
 import telebot
-import requests
-import json
-import re
-from datetime import datetime
 
-global bot
+from config import load_config
+from formatter import format_conversion_message
+from fx_api import FXRateClient
+from parser import UnsupportedCurrency, parse_currency_input
 
-class FXRateConfig:
-    def __init__(self, bot_token, channels):
-        global bot
-        bot = telebot.TeleBot(bot_token)
-        self.channels = channels
+FORMAT_ERROR_MESSAGE = "格式錯誤。請使用 /cur <金額> <從幣種> <到幣種>"
+RATE_ERROR_MESSAGE = "無法取得匯率資料。"
+UNAUTHORIZED_MESSAGE = "您沒有權限使用此指令。"
+UNKNOWN_CURRENCY_MESSAGE = "找不到幣種: {}"
 
 
-def load_config():
-    with open('config.json') as f:
-        j = json.load(f)
-        return FXRateConfig(j['bot_token'], j['channels'])
+def create_bot(config, fx_client=None):
+    bot = telebot.TeleBot(config.bot_token)
+    fx_client = fx_client or FXRateClient()
+    currency_list = fx_client.get_currency_list()
 
-def get_currency_list():
-    url = "https://api.fxratesapi.com/currencies?format=json"
-    try:
-        response = requests.get(url)
-        data = response.json()
+    @bot.message_handler(commands=["cur"])
+    def handle_currency_conversion(message):
+        nonlocal currency_list
 
-        currency_list = [data[currency]['code'] for currency in data]
-        return currency_list
-    except Exception as e:
-        print(e)
-        return None
-
-def get_exchange_rate(amount, from_currency, to_currency):
-    url = f"https://api.fxratesapi.com/convert?from={from_currency}&to={to_currency}&amount={amount}&format=json"
-    try:
-        response = requests.get(url)
-        data = response.json()
-        return data
-    except Exception as e:
-        print(e)
-        return None
-
-config = load_config()
-currency_list = get_currency_list()
-
-def parse_currency_input(text):
-    pattern = r'^(\d+(\.\d+)?\s*)?(?:([A-Z]{3,4}|MATIC))(\s+(?:[A-Z]{3,4}|MATIC))?$'
-    match = re.match(pattern, text.strip().upper())
-    
-    if match:
-        amount = match.group(1)
-        from_currency = match.group(3)
-        to_currency = match.group(4)
-
-        if from_currency not in currency_list:
-            return -1, from_currency, ""
-        if to_currency and to_currency.strip() not in currency_list:
-            return -1, "", to_currency
-        
-        amount = float(amount.strip()) if amount else 1
-        to_currency = to_currency.strip() if to_currency else 'TWD'
-        
-        return amount, from_currency, to_currency
-    return None
-
-@bot.message_handler(commands=['cur'])
-def handle_currency_conversion(message):
-    try:
-        if len(config.channels) and message.chat.id not in config.channels:
-            bot.reply_to(message, "您沒有權限使用此指令。")
-            return
-        result = parse_currency_input(message.text.replace('/cur ', '').replace('=', '').replace(',', ''))
-        if result:
-            amount, from_currency, to_currency = result
-
-            if amount == -1:
-                if from_currency:
-                    bot.reply_to(message, f"找不到幣種: {from_currency}")
-                else:
-                    bot.reply_to(message, f"找不到幣種: {to_currency}")
+        try:
+            if config.channels and message.chat.id not in config.channels:
+                bot.reply_to(message, UNAUTHORIZED_MESSAGE)
                 return
 
-            data = get_exchange_rate(amount, from_currency, to_currency)
+            if currency_list is None:
+                currency_list = fx_client.get_currency_list()
+            if currency_list is None:
+                bot.reply_to(message, RATE_ERROR_MESSAGE)
+                return
+
+            parsed_input = parse_currency_input(
+                message.text.replace("/cur ", "").replace("=", "").replace(",", ""),
+                currency_list,
+            )
+            if not parsed_input:
+                bot.reply_to(message, FORMAT_ERROR_MESSAGE)
+                return
+
+            if isinstance(parsed_input, UnsupportedCurrency):
+                bot.reply_to(
+                    message, UNKNOWN_CURRENCY_MESSAGE.format(parsed_input.currency)
+                )
+                return
+
+            data = fx_client.get_exchange_rate(
+                parsed_input.amount,
+                parsed_input.from_currency,
+                parsed_input.to_currency,
+            )
             if data is None:
-                bot.reply_to(message, "無法取得匯率資料。")
+                bot.reply_to(message, RATE_ERROR_MESSAGE)
                 return
-            
-            converted_amount = data['result']
-            timestamp = datetime.fromtimestamp(data['timestamp'])
 
-            if amount.is_integer():
-                amount_str = f"{int(amount):,}"
-            else:
-                amount_str = f"{amount:,.2f}"
+            bot.reply_to(
+                message,
+                format_conversion_message(
+                    parsed_input.amount,
+                    parsed_input.from_currency,
+                    parsed_input.to_currency,
+                    data["result"],
+                    data["timestamp"],
+                ),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            logging.exception("Failed to process currency conversion")
+            bot.reply_to(message, FORMAT_ERROR_MESSAGE)
 
-            if converted_amount < 0.01:
-                response = f"`💰{amount_str} {from_currency} = < 0.01 {to_currency}`"
-                response += f"\n\n更新時間: {timestamp.strftime('%Y-%m-%d %H:%M')}"
-            else:
-                if converted_amount.is_integer():
-                    converted_amount_str = f"{int(converted_amount):,}"
-                else:
-                    converted_amount_str = f"{converted_amount:,.2f}"
-                
-                response = f"`💰{amount_str} {from_currency} = {converted_amount_str} {to_currency}`"
-                response += f"\n\n更新時間: {timestamp.strftime('%Y-%m-%d %H:%M')}"
-            
-            bot.reply_to(message, response, parse_mode="Markdown")
-        else:
-            bot.reply_to(message, "格式錯誤。請使用 /cur <金額> <從幣種> <到幣種>")
-    except Exception as e:
-        print(e)
-        bot.reply_to(message, "格式錯誤。請使用 /cur <金額> <從幣種> <到幣種>")
+    return bot
 
-bot.polling()
+
+def main():
+    config = load_config()
+    create_bot(config).polling()
+
+
+if __name__ == "__main__":
+    main()
