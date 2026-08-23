@@ -7,6 +7,10 @@ CONVERT_URL = "https://api.fxratesapi.com/convert"
 REQUEST_TIMEOUT_SECONDS = 10
 
 
+class FXRateNotFound(Exception):
+    pass
+
+
 class FXRateClient:
     def __init__(self, session=requests):
         self.session = session
@@ -49,9 +53,18 @@ class FXRateClient:
             data = response.json()
             if not isinstance(data, dict):
                 raise ValueError("Conversion response is not an object")
-            if "result" not in data or "timestamp" not in data:
+            if "timestamp" not in data:
                 raise ValueError("Conversion response is missing required fields")
+            if not isinstance(data.get("result"), (int, float)):
+                raise FXRateNotFound
             return data
+        except FXRateNotFound:
+            raise
+        except requests.HTTPError as error:
+            if error.response is not None and error.response.status_code in (400, 404):
+                raise FXRateNotFound from error
+            logging.warning("Could not fetch exchange rate: %s", error)
+            return None
         except (requests.RequestException, ValueError, TypeError) as error:
             logging.warning("Could not fetch exchange rate: %s", error)
             return None

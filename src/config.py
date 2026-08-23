@@ -1,11 +1,13 @@
 import json
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass(frozen=True)
 class FXRateConfig:
     bot_token: str
     channels: list
+    coingecko_api_key: Optional[str] = None
 
 
 def load_config(path="config.json"):
@@ -15,4 +17,5 @@ def load_config(path="config.json"):
     return FXRateConfig(
         bot_token=data["bot_token"],
         channels=data["channels"],
+        coingecko_api_key=data.get("coingecko_api_key"),
     )

@@ -1,4 +1,5 @@
 {
     "bot_token": "",
-    "channels": []
+    "channels": [],
+    "coingecko_api_key": ""
 }

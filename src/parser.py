@@ -3,8 +3,8 @@ from dataclasses import dataclass
 from typing import Collection, Optional, Union
 
 INPUT_PATTERN = re.compile(
-    r"^(\d+(\.\d+)?\s*)?(?:([A-Z]{3,4}|MATIC))"
-    r"(\s+(?:[A-Z]{3,4}|MATIC))?$"
+    r"^(\d+(\.\d+)?\s*)?(?:([A-Z0-9]{1,20}))"
+    r"(\s+(?:[A-Z0-9]{1,20}))?$"
 )
 DEFAULT_TO_CURRENCY = "TWD"
 
@@ -22,7 +22,7 @@ class UnsupportedCurrency:
 
 
 def parse_currency_input(
-    text: str, supported_currencies: Collection[str]
+    text: str, supported_currencies: Collection[str], validate_currencies: bool = True
 ) -> Optional[Union[CurrencyConversion, UnsupportedCurrency]]:
     match = INPUT_PATTERN.match(text.strip().upper())
     if not match:
@@ -33,9 +33,13 @@ def parse_currency_input(
         match.group(3),
         match.group(4),
     )
-    if from_currency not in supported_currencies:
+    if validate_currencies and from_currency not in supported_currencies:
         return UnsupportedCurrency(from_currency)
-    if to_currency and to_currency.strip() not in supported_currencies:
+    if (
+        validate_currencies
+        and to_currency
+        and to_currency.strip() not in supported_currencies
+    ):
         return UnsupportedCurrency(to_currency.strip())
 
     return CurrencyConversion(
